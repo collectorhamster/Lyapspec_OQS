@@ -157,7 +157,7 @@ CSV.write(path * "lim_anw_F$(Fid).csv", Tables.table(vec(lim_anw)), writeheader=
 
 println("done.")
 
-a
+println("done.")
 
 
 traj_idx = rand(1:1000)
