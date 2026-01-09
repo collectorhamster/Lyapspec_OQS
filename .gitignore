@@ -1,5 +1,12 @@
 *.csv
 *.pdf
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk
 
 data/
 pic/

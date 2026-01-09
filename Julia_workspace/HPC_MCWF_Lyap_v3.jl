@@ -1,7 +1,7 @@
 using LinearAlgebra
 using QuantumToolbox
 using DifferentialEquations
-using Statistics,LsqFit
+using Statistics, LsqFit
 using CSV, DataFrames, Tables
 
 println("Running with $(Threads.nthreads()) threads on $(gethostname())")
@@ -14,9 +14,9 @@ function qr_pos_log!(StateMat)
     replace!(d, 0 => 1)
 
     # Q absorbs d, R gets multiplied by conj(d) to cancel the phase
-    Q_new = Matrix(F.Q) .* d' 
+    Q_new = Matrix(F.Q) .* d'
     # R_new = conj.(d) .* F.R   #: d -> conj.(d)
-    
+
     return Q_new, log.(abs.(R_diag))
 end
 
@@ -24,11 +24,11 @@ end
 function safe_time(jumps_t, jumps_idx, tend; max_dt=10.0)
     full_times = Float64[]
     full_indices = Int[]
-    
+
     t_curr = 0.0
     N = length(jumps_t)
-    
-    for k in 1:(N + 1)
+
+    for k in 1:(N+1)
         if k <= N
             t_target = jumps_t[k]
             op_code = jumps_idx[k]
@@ -47,7 +47,7 @@ function safe_time(jumps_t, jumps_idx, tend; max_dt=10.0)
             t_curr = t_target
         end
     end
-    
+
     return full_times, full_indices
 end
 
@@ -57,7 +57,7 @@ function Lyap(p_ode, Lm, N_vol, sol, tend, dt_reg, traj_idx)
     jumps_t = copy(sol.col_times[traj_idx])   # Times when jumps occurred
     jumps_idx = copy(sol.col_which[traj_idx])
     cb_times, cb_indices = safe_time(jumps_t, jumps_idx, tend; max_dt=dt_reg)
-    
+
     function Heff_evo!(du, u, p, t)
         mul!(du, p, u) # du = p * u  (equivalent to du = -iH * u)
     end
@@ -76,13 +76,13 @@ function Lyap(p_ode, Lm, N_vol, sol, tend, dt_reg, traj_idx)
             op_idx = cb_indices[k]
             if op_idx > 0
                 # integrator.u .= Lm[op_idx].data * integrator.u
-                mul!(u_cache,Lm[op_idx].data,integrator.u)
+                mul!(u_cache, Lm[op_idx].data, integrator.u)
                 integrator.u .= u_cache
             end
         end
         Q, R_log = qr_pos_log!(integrator.u)
         # push!(anw, R_log)
-        results[:,k] .= R_log
+        results[:, k] .= R_log
         integrator.u .= Matrix(Q)
         jump_counter[] += 1
     end
@@ -92,33 +92,33 @@ function Lyap(p_ode, Lm, N_vol, sol, tend, dt_reg, traj_idx)
     cb = PresetTimeCallback(cb_times, jump_qr_affect!)
     prob = ODEProblem(Heff_evo!, Q0, (0.0, cb_times[end]), p_ode)
     sim = solve(prob, Tsit5(), callback=cb, save_everystep=false)
-    
+
     return results, cb_times
 end
 
 function estimate_limit(tarr, data::Vector{<:Number}; fraction=2)
-    start_idx = div(length(tarr),fraction)
+    start_idx = div(length(tarr), fraction)
     x = tarr[start_idx:end]
     y = data[start_idx:end]
     @. model(t, p) = p[1] * t + p[2]
-    p0 = [(data[end]-data[1])/(tarr[end]-tarr[1]), data[1]]
-    fit = curve_fit(model, x,y, p0)
+    p0 = [(data[end] - data[1]) / (tarr[end] - tarr[1]), data[1]]
+    fit = curve_fit(model, x, y, p0)
     return fit.param[1]
 end
 
 ### MCWF simulation
 tlist = LinRange(0.0, 1000.0, 8000)
 Na = 30
-v0 = fock(Na, Na-1)
-a  = destroy(Na)
+v0 = fock(Na, Na - 1)
+a = destroy(Na)
 
 Gamma = 1.0
-U0, F0 = 10.0*Gamma, 1.8*Gamma
+U0, F0 = 10.0 * Gamma, 1.8 * Gamma
 N = 10
-U, F = U0/N, F0*sqrt(N)
-Delt = 10*Gamma
+U, F = U0 / N, F0 * sqrt(N)
+Delt = 10 * Gamma
 
-H = -Delt * a' * a + (U/2) * a' * a' * a * a + F * (a' + a)
+H = -Delt * a' * a + (U / 2) * a' * a' * a * a + F * (a' + a)
 c_ops = [sqrt(Gamma) * a]
 e_ops = [a' * a]
 
@@ -127,7 +127,7 @@ flush(stdout)
 
 ### Benettin method
 N_vol = 10
-Heff = -Delt * a' * a + (U/2) * a' * a' * a * a + F * (a' + a) - 0.5im * sum(op' * op for op in c_ops)
+Heff = -Delt * a' * a + (U / 2) * a' * a' * a * a + F * (a' + a) - 0.5im * sum(op' * op for op in c_ops)
 Heff_dense = Matrix(Heff.data)
 p_ode = -1im * Heff_dense
 
@@ -136,20 +136,20 @@ dt_reg = 10.0
 N_trj = 10
 Fid = 0
 results = Vector{Matrix{Float64}}(undef, N_trj)
-times   = Vector{Vector{Float64}}(undef, N_trj)
+times = Vector{Vector{Float64}}(undef, N_trj)
 lim_anw = zeros(N_vol, N_trj)
 BLAS.set_num_threads(1)
 @time Threads.@threads for traj_idx in 1:N_trj
     anw, t_arr = Lyap(p_ode, c_ops, N_vol, sol, tlist[end], dt_reg, traj_idx)
     results[traj_idx] = anw
-    times[traj_idx]   = t_arr
+    times[traj_idx] = t_arr
     temp = cumsum(anw', dims=1)
-    lim_anw[:,traj_idx] = [estimate_limit(t_arr,temp[:,i]) for i in axes(temp,2)]
+    lim_anw[:, traj_idx] = [estimate_limit(t_arr, temp[:, i]) for i in axes(temp, 2)]
 end
 
 for i in 1:N_trj
     CSV.write(path * "anw_F$(Fid)_T$(i).csv", Tables.table(vec(results[i])), writeheader=false)
-    CSV.write(path * "time_F$(Fid)_T$(i).csv", Tables.table(times[i]),   writeheader=false)
+    CSV.write(path * "time_F$(Fid)_T$(i).csv", Tables.table(times[i]), writeheader=false)
 end
 
 CSV.write(path * "lim_anw_F$(Fid).csv", Tables.table(vec(lim_anw)), writeheader=false)
@@ -161,4 +161,4 @@ println("done.")
 traj_idx = rand(1:1000)
 anw, t_arr = Lyap(p_ode, c_ops, N_vol, sol, tlist[end], dt_reg, traj_idx)
 temp = cumsum(anw', dims=1)
-[estimate_limit(t_arr,temp[:,i]) for i in axes(temp,2)]
+[estimate_limit(t_arr, temp[:, i]) for i in axes(temp, 2)]
